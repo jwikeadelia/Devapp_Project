@@ -23,5 +23,4 @@ jobs:
         run: docker build -t keelay88/devapp_project:backend ./backend
 
       - name: Push Docker image
-        run: docker build -t keelay88/devapp_project:backend -f app/Dockerfile app
-
+        run: docker push keelay88/devapp_project:backend
