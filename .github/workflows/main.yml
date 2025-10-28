@@ -19,6 +19,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # membuat docker image
       - name: Build Docker image
         run: docker build -t keelay88/devapp_project:backend .
 
