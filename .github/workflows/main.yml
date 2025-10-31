@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build Docker Image
 
 on:
   push:
@@ -19,8 +19,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
+      - name: Build Docker image backend
         run: docker build -t keelay88/devapp_project:backend ./backend
 
-      - name: Push Docker image
-        run: docker push keelay88/devapp_project:backend
+      - name: Build Docker image frontend
+        run: docker build -t keelay88/devapp_project:frontend ./frontend
+
