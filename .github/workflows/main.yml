@@ -1,3 +1,4 @@
+---
 name: Super Linter
 
 on:
@@ -13,18 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/checkout@v2
 
       - name: Run Super-Linter
-        uses: github/super-linter/slim@v4
+        uses: github/super-linter@v4
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BRANCH: master
-          # Pilih linter yang ingin digunakan sesuai proyekmu
-          LINTER_RULES_PATH: .github/linter-rules
-          # Opsional: Gunakan rules kustom jika ada
-          VALIDATE_ALL_CODEBASE: true
-          # Khusus untuk proyek JavaScript/Node.js (frontend & backend)
-          NODE_VERSION: 18
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
