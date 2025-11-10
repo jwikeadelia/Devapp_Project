@@ -1,7 +1,9 @@
 ---
 name: Super-Linter
 
-on: push
+on:
+  push:
+  pull_request:
 
 permissions:
   contents: read
@@ -11,25 +13,19 @@ jobs:
   super-lint:
     name: Lint code base
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Make scripts executable
-        run: chmod +x backend/wait-for-db.sh
+        run: chmod +x backend/wait-for-db.sh || true
 
       - name: Run Super-Linter
         uses: github/super-linter@v4
         env:
           DEFAULT_BRANCH: master
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_ALL_CODEBASE: false
-          VALIDATE_JSCPD: true
-          VALIDATE_MARKDOWN: false
-          VALIDATE_HTML: false
-          VALIDATE_JAVASCRIPT_STANDARD: false
-          VALIDATE_DOCKERFILE_HADOLINT: false
-          VALIDATE_YAML: false
-          VALIDATE_ENV: false
-          VALIDATE_BASH: false
-          JSCPD_THRESHOLD: 20
+          VALIDATE_ALL_CODEBASE: false  
+          VALIDATE_JSCPD: true           
+          JSCPD_THRESHOLD: 20            
