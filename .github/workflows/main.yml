@@ -22,8 +22,6 @@ jobs:
         env:
           DEFAULT_BRANCH: master
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_MARKDOWN: "false"
-          VALIDATE_HTML: "false"
-          VALIDATE_JAVASCRIPT_STANDARD: "false"
-          VALIDATE_JSCPD: "true"
-          JSCPD_THRESHOLD: 20
+          VALIDATE_ALL_CODEBASE: true
+          VALIDATE_MARKDOWN: false
+          VALIDATE_HTML: false
