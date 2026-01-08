@@ -2,33 +2,34 @@ name: Deploy Devapp to Minikube (Podman)
 
 on:
   push:
-    branches: [ "master" ] # Sesuaikan dengan branch utama Anda
+    branches: [ "master" ]
 
 jobs:
   build-and-test:
-    # Wajib self-hosted agar bisa akses Podman di laptop
     runs-on: self-hosted
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    # Contoh testing sederhana (Opsional, sesuaikan dengan project Node.js Anda)
     - name: Test Environment
       run: |
         echo "✅ Checking Podman installation..."
         podman --version
-        echo "✅ Checking Minikube status..."
+        
+        # Matikan error stop sementara
+        $ErrorActionPreference = 'Continue'
         minikube status
+        $ErrorActionPreference = 'Stop'
 
     - name: Build Images with Podman
       run: |
-        # Build Backend
         echo "Building Backend..."
+        # Pastikan nama image ini SAMA dengan yang ada di file k8s/03-backend.yaml
         podman build -t devapp_project_backend:latest ./backend
         
-        # Build Frontend
         echo "Building Frontend..."
+        # Pastikan nama image ini SAMA dengan yang ada di file k8s/04-frontend.yaml
         podman build -t devapp_project_frontend:latest ./frontend
         
         # Verifikasi image ada
@@ -36,22 +37,19 @@ jobs:
 
     - name: Test Container (Singkat)
       run: |
-        # Menjalankan container sebentar untuk memastikan tidak crash saat start
         echo "Testing Backend Container Start..."
         podman run -d --name test-backend -p 5001:5000 devapp_project_backend:latest
         
-        # Tunggu 5 detik
         sleep 5
         
-        # Cek apakah masih jalan
         if (podman ps --filter "name=test-backend" --format "{{.Names}}") { 
             echo "✅ Container is running" 
         } else { 
             echo "❌ Container failed to start"
+            podman logs test-backend
             exit 1 
         }
         
-        # Bersih-bersih
         podman stop test-backend
         podman rm test-backend
 
@@ -65,43 +63,51 @@ jobs:
 
     - name: Prepare Minikube & Load Images
       run: |
-        # 1. Pastikan Minikube jalan (jika belum, start)
-        # Kita gunakan '||' agar jika sudah jalan, dia tidak error
-        minikube status || minikube start --driver=podman
+        # --- PERBAIKAN LOGIKA START MINIKUBE (Windows PowerShell) ---
+        $ErrorActionPreference = 'Continue' # Jangan stop jika command berikut gagal
+        minikube status
+        
+        # Jika exit code tidak 0 (berarti mati/error), nyalakan minikube
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Minikube mati/belum ada. Menyalakan..."
+            minikube start --driver=podman
+        }
+        $ErrorActionPreference = 'Stop' # Kembalikan ke mode normal
+        # ------------------------------------------------------------
 
-        # 2. Save Image dari Podman ke File (Teknik paling stabil untuk Windows)
         echo "Saving images to tar..."
         podman save -o backend.tar devapp_project_backend:latest
         podman save -o frontend.tar devapp_project_frontend:latest
 
-        # 3. Load Image ke Minikube
         echo "Loading images into Minikube..."
         minikube image load backend.tar
         minikube image load frontend.tar
 
-        # 4. Hapus file tar (hemat space)
+        echo "Cleaning up tar files..."
         rm backend.tar
         rm frontend.tar
 
     - name: Apply Kubernetes Manifests
       run: |
-        # Terapkan semua file di folder k8s
+        # Apply semua config
         kubectl apply -f k8s/00-namespace.yaml
         kubectl apply -f k8s/01-config-secrets.yaml
         kubectl apply -f k8s/02-database.yaml
+        
+        # Apply App
         kubectl apply -f k8s/03-backend.yaml
         kubectl apply -f k8s/04-frontend.yaml
         
-        # Deploy monitoring (opsional)
-        kubectl apply -f k8s/monitoring/
+        # Apply Monitoring (Opsional - Jika error, comment baris ini)
+        # kubectl apply -f k8s/monitoring/
 
     - name: Refresh Deployment
       run: |
-        # Paksa restart pod agar menggunakan image terbaru yang baru di-load
+        echo "Restarting deployments to pick up new images..."
         kubectl rollout restart deployment backend-deployment -n devapp
         kubectl rollout restart deployment frontend-deployment -n devapp
         
-        # Tunggu rollout selesai (timeout 2 menit)
+        echo "Waiting for rollout..."
         kubectl rollout status deployment/backend-deployment -n devapp --timeout=120s
         kubectl rollout status deployment/frontend-deployment -n devapp --timeout=120s
 
