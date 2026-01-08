@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ${{ secrets.DOCKER_USERNAME }}/devapp-frontend:latest
+          image: devapp_project_frontend:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 80
           resources:

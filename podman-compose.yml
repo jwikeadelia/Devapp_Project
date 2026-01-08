@@ -26,6 +26,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: devapp_project_backend:latest
     container_name: backend
     restart: always
     depends_on:
@@ -44,6 +45,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: devapp_project_frontend:latest
     container_name: frontend
     restart: always
     depends_on:

@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: ${{ secrets.DOCKER_USERNAME }}/devapp-backend:latest
+          image: devapp_project_backend:latest
+          imagePullPolicy: Never
           ports:
             - containerPort: 5000
           envFrom:
