@@ -413,6 +413,68 @@ app.get("/api/barangkeluars/search", requireLogin, async (req, res) => {
   }
 });
 
+// ====================== DASHBOARD & REPORTS ======================
+
+// Dashboard Stats
+app.get("/api/dashboard", requireLogin, async (req, res) => {
+  try {
+    const totalBarang = await Barang.count();
+    const lowStock = await Barang.count({
+      where: { stok: { [Op.lt]: 5 } },
+    });
+    const totalMasuk = await BarangMasuk.count();
+    const totalKeluar = await BarangKeluar.count();
+
+    // Latest 5 transactions (optional, nicely to have)
+    // const recentMasuk = await BarangMasuk.findAll({ limit: 5, order: [['createdAt', 'DESC']], include: [{ model: Barang, as: 'barang' }] });
+
+    res.json({
+      totalBarang,
+      lowStock,
+      totalMasuk,
+      totalKeluar,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reports Endpoint
+app.get("/api/reports/transactions", requireLogin, async (req, res) => {
+  try {
+    const { start_date, end_date, type } = req.query;
+
+    let whereClause = {};
+    if (start_date && end_date) {
+      // Assuming tanggal is DATE only or DATETIME. 
+      // If DATETIME, might need to adjust end_date to end of day.
+      // For simplicity, let's rely on standard comparison strings 'YYYY-MM-DD'
+       whereClause.tanggal = {
+        [Op.between]: [new Date(start_date), new Date(end_date + ' 23:59:59')]
+      };
+    }
+
+    let data = [];
+    if (type === "masuk") {
+      data = await BarangMasuk.findAll({
+        where: whereClause,
+        include: [{ model: Barang, as: "barang" }],
+        order: [['tanggal', 'ASC']]
+      });
+    } else if (type === "keluar") {
+      data = await BarangKeluar.findAll({
+        where: whereClause,
+        include: [{ model: Barang, as: "barang" }],
+         order: [['tanggal', 'ASC']]
+      });
+    }
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ====================== RUN SERVER ======================
 sequelize.sync({ alter: true }).then(() => {
   app.listen(5000, () => {

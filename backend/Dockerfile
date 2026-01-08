@@ -13,10 +13,11 @@ COPY . .
 
 # Copy skrip wait-for-db.sh
 COPY wait-for-db.sh /app/wait-for-db.sh
+RUN sed -i 's/\r$//' /app/wait-for-db.sh
 RUN chmod +x /app/wait-for-db.sh
 
 # Expose port
 EXPOSE 5000
 
 # Jalankan backend setelah DB siap
-CMD ["./wait-for-db.sh", "db", "npm", "start"]
+CMD ["/bin/bash", "/app/wait-for-db.sh", "db", "npm", "start"]

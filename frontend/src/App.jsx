@@ -7,6 +7,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Transaksi from "./pages/TransaksiPenjualan";
 import Stok from "./pages/Stok";
+import Dashboard from "./pages/Dashboard";
+import Laporan from "./pages/Laporan";
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
         <Route path="/regis" element={<Register />} />
         <Route path="/transaksi" element={<Transaksi />} />
         <Route path="/stok" element={<Stok />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/laporan" element={<Laporan />} />
       </Routes>
     </Router>
   );

@@ -1,0 +1,77 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - master # Pastikan nama branch benar (main atau master)
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  # JOB 1: Build di Cloud (Beban kerja di GitHub)
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          # file: ./backend/Dockerfile # (Opsional jika nama standar Dockerfile)
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/devapp_project_backend:latest
+
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          # file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/devapp_project_frontend:latest
+
+  # JOB 2: Deploy di Laptop Lokal (Runner Sendiri)
+  deploy:
+    needs: build-and-push
+    # PENTING: Menggunakan runner di laptop Anda
+    runs-on: self-hosted 
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Kita TIDAK butuh 'azure/setup-kubectl' atau 'k8s-set-context'
+      # Karena runner ini berjalan di laptop yang SUDAH terkoneksi ke Minikube
+
+      - name: Deploy to Minikube via Podman
+        # Pastikan command line ini bisa jalan di terminal tempat runner aktif
+        run: |
+          echo "Starting Deployment to Local Minikube..."
+          
+          # 1. Apply Konfigurasi
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -f k8s/01-config-secrets.yaml
+          kubectl apply -f k8s/02-database.yaml
+          
+          # 2. Deploy App (Pastikan YAML menggunakan image dari Docker Hub, bukan localhost)
+          kubectl apply -f k8s/03-backend.yaml
+          kubectl apply -f k8s/04-frontend.yaml
+          
+          # 3. Deploy Monitoring
+          kubectl apply -f k8s/monitoring/grafana.yaml
+          kubectl apply -f k8s/monitoring/prometheus.yaml
+          
+          # 4. Paksa Update Image
+          # Ini penting karena nama tag 'latest' tidak berubah
+          kubectl rollout restart deployment backend-deployment -n devapp
+          kubectl rollout restart deployment frontend-deployment -n devapp
+          
+          echo "Deployment Triggered Successfully!"

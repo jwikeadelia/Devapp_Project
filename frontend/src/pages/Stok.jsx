@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import Sidebar from "../components/Sidebar";
 import TambahStok from "./TambahStok";
 import EditStok from "./EditStok";
 // ...import React, { useEffect, useState } from "react";
 // ...import { Link } from "react-router-dom";
 
 export default function Stok() {
+  const navigate = useNavigate();
   const [barangs, setBarangs] = useState([]);
   const [user, setUser] = useState({ username: "Guest" });
   const [query, setQuery] = useState(""); // untuk search
@@ -81,50 +83,8 @@ export default function Stok() {
   return (
     <div className="d-flex bg-light min-vh-100">
       {/* Sidebar */}
-      <div
-        className="bg-primary text-white p-3 d-flex flex-column"
-        style={{ width: "250px" }}
-      >
-        <h4 className="fw-bold text-center mb-4">
-          <i className="bi bi-list-task me-2"></i>Menu
-        </h4>
-        <ul className="nav flex-column gap-2">
-          <li>
-            <Link to="/" className="nav-link text-white">
-              <i className="bi bi-house-door me-2"></i>Home
-            </Link>
-          </li>
-          <li>
-            <Link to="/stok" className="nav-link text-white">
-              <i className="bi bi-box-seam me-2"></i>Barang Masuk
-            </Link>
-          </li>
-          <li>
-            <Link to="/transaksi" className="nav-link text-white">
-              <i className="bi bi-card-checklist me-2"></i>Barang Keluar
-            </Link>
-          </li>
-          <li>
-            <Link to="/login" className="nav-link text-white">
-              <i className="bi bi-box-arrow-in-right me-2"></i>Login
-            </Link>
-          </li>
-          <li>
-            <Link
-              to="/"
-              onClick={handleLogout}
-              className="nav-link text-white"
-            >
-              <i className="bi bi-box-arrow-right me-2"></i>Logout
-            </Link>
-          </li>
-        </ul>
-
-        <div className="mt-auto border-top pt-3 text-center">
-          <i className="bi bi-person-circle fs-4"></i>
-          <div className="fw-bold mt-1">{user.username}</div>
-        </div>
-      </div>
+      {/* Sidebar */}
+      <Sidebar user={user} onLogout={handleLogout} />
 
       {/* Main Content */}
       <div className="flex-grow-1 p-4">
@@ -196,9 +156,9 @@ export default function Stok() {
                       <td>{barang.user_id}</td>
                       <td>
                         <div className="d-flex gap-2 justify-content-center">
-                          <EditStok 
-                            stok={barang} 
-                            handleUpdate={fetchBarangs} 
+                          <EditStok
+                            stok={barang}
+                            handleUpdate={fetchBarangs}
                           />
                           <button
                             className="btn btn-danger btn-sm"
