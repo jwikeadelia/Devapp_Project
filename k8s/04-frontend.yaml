@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: devapp_project_frontend:latest
+          image: localhost/devapp_project_frontend:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 80

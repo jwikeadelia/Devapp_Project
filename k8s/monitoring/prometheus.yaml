@@ -1,16 +1,63 @@
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-server-conf
   labels:
     name: prometheus-server-conf
-  namespace: devapp
+  namespace: monitoring
 data:
   prometheus.yml: |-
     global:
       scrape_interval: 5s
       evaluation_interval: 5s
     scrape_configs:
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['kube-state-metrics.monitoring.svc.cluster.local:8080']
+
       - job_name: 'kubernetes-apiservers'
         kubernetes_sd_configs:
         - role: endpoints
@@ -38,7 +85,7 @@ data:
         - source_labels: [__meta_kubernetes_node_name]
           regex: (.+)
           target_label: __metrics_path__
-          replacement: /api/v1/nodes/${1}/proxy/metrics
+          replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
 
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
@@ -70,7 +117,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus-deployment
-  namespace: devapp
+  namespace: monitoring
   labels:
     app: prometheus-server
 spec:
@@ -83,6 +130,7 @@ spec:
       labels:
         app: prometheus-server
     spec:
+      serviceAccountName: prometheus
       containers:
         - name: prometheus
           image: prom/prometheus
@@ -103,20 +151,19 @@ spec:
             name: prometheus-server-conf
         - name: prometheus-storage-volume
           emptyDir: {}
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: prometheus-service
-  namespace: devapp
+  namespace: monitoring
   annotations:
       prometheus.io/scrape: 'true'
       prometheus.io/port:   '9090'
 spec:
-  selector: 
+  selector:
     app: prometheus-server
-  type: NodePort  
   ports:
-    - port: 8080
-      targetPort: 9090 
-      nodePort: 30001
+    - port: 9090
+      targetPort: 9090

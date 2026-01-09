@@ -449,7 +449,7 @@ app.get("/api/reports/transactions", requireLogin, async (req, res) => {
       // Assuming tanggal is DATE only or DATETIME. 
       // If DATETIME, might need to adjust end_date to end of day.
       // For simplicity, let's rely on standard comparison strings 'YYYY-MM-DD'
-       whereClause.tanggal = {
+      whereClause.tanggal = {
         [Op.between]: [new Date(start_date), new Date(end_date + ' 23:59:59')]
       };
     }
@@ -465,7 +465,7 @@ app.get("/api/reports/transactions", requireLogin, async (req, res) => {
       data = await BarangKeluar.findAll({
         where: whereClause,
         include: [{ model: Barang, as: "barang" }],
-         order: [['tanggal', 'ASC']]
+        order: [['tanggal', 'ASC']]
       });
     }
 
