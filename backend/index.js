@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 // CORS
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:8080"], // alamat frontend
+    origin: ["http://localhost:5173", "http://localhost:8080", "http://localhost:8081"], // alamat frontend
     credentials: true, // supaya cookie bisa dikirim
   })
 );
