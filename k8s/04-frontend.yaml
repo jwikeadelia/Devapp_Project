@@ -15,8 +15,9 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: localhost/devapp_project_frontend:latest
-          imagePullPolicy: Never
+          # image: localhost/devapp_project_frontend:latest
+          image: docker.io/keelay88/devapp-frontend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
           resources:

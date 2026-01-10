@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: localhost/devapp_project_backend:latest
-          imagePullPolicy: Never
+          image: docker.io/keelay88/devapp-backend:latest
+          imagePullPolicy: Always
           command:
             - /bin/sh
             - -c
