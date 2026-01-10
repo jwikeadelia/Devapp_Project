@@ -1,12 +1,22 @@
-name: Deploy Devapp to Minikube (Podman)
+name: GitOps Deploy with ArgoCD (Podman)
 
 on:
   push:
     branches: [ "master" ]
 
+env:
+  # Configure your container registry here
+  REGISTRY: docker.io  # Change to your registry (ghcr.io, quay.io, etc.)
+  REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
-  build-and-test:
+  build-and-push:
     runs-on: self-hosted
+    
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
     
     steps:
     - name: Checkout code
@@ -16,31 +26,44 @@ jobs:
       run: |
         echo "✅ Checking Podman installation..."
         podman --version
-        
-        # Matikan error stop sementara
-        $ErrorActionPreference = 'Continue'
-        minikube status
-        $ErrorActionPreference = 'Stop'
+        echo "Podman is ready for building images"
 
-    - name: Build Images with Podman
+    - name: Set Image Metadata
+      id: meta
       run: |
-        echo "Building Backend..."
-        # Pastikan nama image ini SAMA dengan yang ada di file k8s/03-backend.yaml
-        podman build -t devapp_project_backend:latest ./backend
+        $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
+        echo "tag=$SHORT_SHA" >> $env:GITHUB_OUTPUT
+        echo "Image tag will be: $SHORT_SHA"
+
+    - name: Build Images with Podman Compose
+      run: |
+        echo "Building all services with podman-compose..."
+        podman-compose build
         
-        echo "Building Frontend..."
-        # Pastikan nama image ini SAMA dengan yang ada di file k8s/04-frontend.yaml
-        podman build -t devapp_project_frontend:latest ./frontend
+        echo "Tagging images for registry..."
+        # Tag backend image
+        podman tag devapp_project_backend:latest `
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
+        podman tag devapp_project_backend:latest `
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
         
-        # Verifikasi image ada
+        # Tag frontend image
+        podman tag devapp_project_frontend:latest `
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
+        podman tag devapp_project_frontend:latest `
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
+        
+        # Verify images
+        echo "Verifying built images..."
         podman images | findstr devapp
 
-    - name: Test Container (Singkat)
+    - name: Test Container
       run: |
-        echo "Testing Backend Container Start..."
-        podman run -d --name test-backend -p 5001:5000 devapp_project_backend:latest
+        echo "Testing Backend Container..."
+        podman run -d --name test-backend -p 5001:5000 `
+          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
         
-        sleep 5
+        Start-Sleep -Seconds 5
         
         if (podman ps --filter "name=test-backend" --format "{{.Names}}") { 
             echo "✅ Container is running" 
@@ -53,66 +76,130 @@ jobs:
         podman stop test-backend
         podman rm test-backend
 
-  deploy-to-minikube:
-    needs: build-and-test
+    - name: Login to Container Registry
+      run: |
+        echo "Logging in to ${{ env.REGISTRY }}..."
+        echo "${{ env.REGISTRY_PASSWORD }}" | podman login ${{ env.REGISTRY }} `
+          --username ${{ env.REGISTRY_USER }} `
+          --password-stdin
+
+    - name: Push Images
+      run: |
+        echo "Pushing Backend images..."
+        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
+        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
+        
+        echo "Pushing Frontend images..."
+        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
+        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
+        
+        echo "✅ Images pushed successfully"
+
+    - name: Logout from Registry
+      if: always()
+      run: podman logout ${{ env.REGISTRY }}
+
+  update-manifests:
+    needs: build-and-push
     runs-on: self-hosted
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
 
-    - name: Prepare Minikube & Load Images
+    - name: Update Image Tags in K8s Manifests
       run: |
-        # --- PERBAIKAN LOGIKA START MINIKUBE (Windows PowerShell) ---
-        $ErrorActionPreference = 'Continue' # Jangan stop jika command berikut gagal
-        minikube status
+        $TAG = "${{ needs.build-and-push.outputs.image_tag }}"
+        echo "Updating manifests with image tag: $TAG"
         
-        # Jika exit code tidak 0 (berarti mati/error), nyalakan minikube
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Minikube mati/belum ada. Menyalakan..."
-            minikube start --driver=podman
+        # Update backend deployment
+        if (Test-Path "k8s/03-backend.yaml") {
+          (Get-Content k8s/03-backend.yaml) -replace 'image:.*devapp.*backend.*', `
+            "image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:$TAG" | `
+            Set-Content k8s/03-backend.yaml
         }
-        $ErrorActionPreference = 'Stop' # Kembalikan ke mode normal
-        # ------------------------------------------------------------
-
-        echo "Saving images to tar..."
-        podman save -o backend.tar devapp_project_backend:latest
-        podman save -o frontend.tar devapp_project_frontend:latest
-
-        echo "Loading images into Minikube..."
-        minikube image load backend.tar
-        minikube image load frontend.tar
-
-        echo "Cleaning up tar files..."
-        rm backend.tar
-        rm frontend.tar
-
-    - name: Apply Kubernetes Manifests
-      run: |
-        # Apply semua config
-        kubectl apply -f k8s/00-namespace.yaml
-        kubectl apply -f k8s/01-config-secrets.yaml
-        kubectl apply -f k8s/02-database.yaml
         
-        # Apply App
-        kubectl apply -f k8s/03-backend.yaml
-        kubectl apply -f k8s/04-frontend.yaml
+        # Update frontend deployment
+        if (Test-Path "k8s/04-frontend.yaml") {
+          (Get-Content k8s/04-frontend.yaml) -replace 'image:.*devapp.*frontend.*', `
+            "image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:$TAG" | `
+            Set-Content k8s/04-frontend.yaml
+        }
         
-        # Apply Monitoring (Opsional - Jika error, comment baris ini)
-        # kubectl apply -f k8s/monitoring/
+        echo "✅ Manifests updated"
 
-    - name: Refresh Deployment
+    - name: Commit and Push Updated Manifests
       run: |
-        echo "Restarting deployments to pick up new images..."
-        kubectl rollout restart deployment backend-deployment -n devapp
-        kubectl rollout restart deployment frontend-deployment -n devapp
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
         
-        echo "Waiting for rollout..."
-        kubectl rollout status deployment/backend-deployment -n devapp --timeout=120s
-        kubectl rollout status deployment/frontend-deployment -n devapp --timeout=120s
+        git add k8s/03-backend.yaml k8s/04-frontend.yaml
+        
+        # Only commit if there are changes
+        if (git diff --staged --quiet) {
+          echo "No changes to commit"
+        } else {
+          git commit -m "Update image tags to ${{ needs.build-and-push.outputs.image_tag }}"
+          git push
+          echo "✅ Manifests committed and pushed"
+        }
 
-    - name: Verification
+  argocd-sync:
+    needs: [build-and-push, update-manifests]
+    runs-on: self-hosted
+    
+    steps:
+    - name: Install ArgoCD CLI (if not present)
       run: |
-        echo "=== DEPLOYMENT STATUS ==="
+        if (-not (Get-Command argocd -ErrorAction SilentlyContinue)) {
+          echo "Installing ArgoCD CLI..."
+          $version = "v2.9.3"
+          Invoke-WebRequest -Uri "https://github.com/argoproj/argo-cd/releases/download/$version/argocd-windows-amd64.exe" `
+            -OutFile "$env:TEMP\argocd.exe"
+          Move-Item -Force "$env:TEMP\argocd.exe" "C:\Windows\System32\argocd.exe"
+          echo "✅ ArgoCD CLI installed"
+        } else {
+          echo "ArgoCD CLI already installed"
+          argocd version --client
+        }
+
+    - name: Login to ArgoCD
+      run: |
+        # Configure these secrets in your GitHub repository:
+        # ARGOCD_SERVER: ArgoCD server address (e.g., argocd.example.com)
+        # ARGOCD_AUTH_TOKEN: ArgoCD authentication token
+        
+        argocd login ${{ secrets.ARGOCD_SERVER }} `
+          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} `
+          --grpc-web `
+          --insecure
+        
+        echo "✅ Logged in to ArgoCD"
+
+    - name: Sync ArgoCD Application
+      run: |
+        # Change 'devapp' to your ArgoCD application name
+        $APP_NAME = "devapp"
+        
+        echo "Syncing ArgoCD application: $APP_NAME"
+        argocd app sync $APP_NAME --prune --force
+        
+        echo "Waiting for sync to complete..."
+        argocd app wait $APP_NAME --health --timeout 300
+        
+        echo "✅ ArgoCD sync completed"
+
+    - name: Get Application Status
+      run: |
+        $APP_NAME = "devapp"
+        echo "=== ArgoCD Application Status ==="
+        argocd app get $APP_NAME
+        
+        echo "`n=== Pod Status ==="
         kubectl get pods -n devapp
+        
+        echo "`n=== Service Status ==="
         kubectl get services -n devapp
