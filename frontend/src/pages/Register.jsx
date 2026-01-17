@@ -12,7 +12,7 @@ export default function Register() {
     e.preventDefault();
     setError("");
     if (password !== kPassword) {
-      setError("Password tidak sama!");
+      setError("Password tidak valid!");
       return;
     }
     fetch("http://localhost:5000/api/regis", {
