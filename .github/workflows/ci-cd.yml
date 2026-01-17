@@ -1,184 +1,45 @@
-name: GitOps Deploy with ArgoCD (Podman)
+name: CI/CD Devapp Project
 
 on:
   push:
-    branches: [ "main" ]  # Ganti ke main kalau repo pakai main (default GitHub)
-
-env:
-  REGISTRY: docker.io  # Ubah ke ghcr.io untuk GitHub Container Registry (lebih cepat)
-  REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
-  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest  # Switch ke ubuntu-latest untuk test; kembalikan ke self-hosted kalau perlu
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tag }}
+  build-and-test:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Install Podman if not present
-      run: |
-        if ! command -v podman &> /dev/null; then
-          echo "Installing Podman..."
-          sudo apt-get update -qq
-          sudo apt-get install -y podman podman-compose
-        fi
-        podman --version
-        echo "Podman ready."
-
-    - name: Set Image Metadata
-      id: meta
-      run: |
-        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-        echo "tag=$SHORT_SHA" >> $GITHUB_OUTPUT
-        echo "Image tag: $SHORT_SHA"
-
-    - name: Build Images with Podman Compose
-      run: |
-        echo "Building services..."
-        podman-compose build
-        
-        echo "Tagging images..."
-        podman tag devapp_project_backend:latest \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
-        podman tag devapp_project_backend:latest \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
-        
-        podman tag devapp_project_frontend:latest \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
-        podman tag devapp_project_frontend:latest \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
-        
-        echo "Verifying images..."
-        podman images | grep devapp || true
-
-    - name: Test Container
-      run: |
-        echo "Testing Backend..."
-        podman run -d --name test-backend -p 5001:5000 \
-          ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
-        
-        sleep 5
-        
-        if podman ps --filter "name=test-backend" --format "{{.Names}}" | grep test-backend; then
-          echo "✅ Running"
-        else
-          echo "❌ Failed"
-          podman logs test-backend
-          exit 1
-        fi
-        
-        podman stop test-backend
-        podman rm test-backend
-
-    - name: Login to Container Registry
-      uses: redhat-actions/podman-login@v1
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ env.REGISTRY_USER }}
-        password: ${{ env.REGISTRY_PASSWORD }}
+        node-version: 18
 
-    - name: Push Images
-      run: |
-        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
-        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
-        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
-        podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
-        echo "✅ Pushed"
+    # ===== BACKEND =====
+    - name: Install Backend Dependencies
+      working-directory: backend
+      run: npm install
 
-    - name: Logout from Registry
-      if: always()
-      run: podman logout ${{ env.REGISTRY }}
+    - name: Run Backend Test
+      working-directory: backend
+      run: npm test || echo "No tests yet"
 
-  update-manifests:
-    needs: build-and-push
-    runs-on: ubuntu-latest  # Sama seperti atas
+    # ===== FRONTEND =====
+    - name: Install Frontend Dependencies
+      working-directory: frontend
+      run: npm install
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+    - name: Build Frontend
+      working-directory: frontend
+      run: npm run build
 
-    - name: Update Image Tags in K8s Manifests
-      run: |
-        TAG=${{ needs.build-and-push.outputs.image_tag }}
-        echo "Updating with tag: $TAG"
-        
-        if [ -f "k8s/03-backend.yaml" ]; then
-          sed -i "s|image: .*devapp.*backend.*|image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:$TAG|g" k8s/03-backend.yaml
-        fi
-        
-        if [ -f "k8s/04-frontend.yaml" ]; then
-          sed -i "s|image: .*devapp.*frontend.*|image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:$TAG|g" k8s/04-frontend.yaml
-        fi
-        echo "✅ Updated"
+    # ===== DOCKER BUILD =====
+    - name: Build Backend Docker Image
+      run: docker build -t devapp-backend ./backend
 
-    - name: Commit and Push Updated Manifests
-      run: |
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git config user.name "github-actions[bot]"
-        
-        git add k8s/03-backend.yaml k8s/04-frontend.yaml
-        
-        if git diff --staged --quiet; then
-          echo "No changes"
-        else
-          git commit -m "Update image tags to ${{ needs.build-and-push.outputs.image_tag }}"
-          git push
-          echo "✅ Committed and pushed"
-        fi
-
-  argocd-sync:
-    needs: [build-and-push, update-manifests]
-    runs-on: ubuntu-latest  # Sama
-
-    steps:
-    - name: Install ArgoCD CLI
-      run: |
-        if ! command -v argocd &> /dev/null; then
-          echo "Installing ArgoCD CLI..."
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/download/v2.11.3/argocd-linux-amd64
-          chmod +x argocd
-          sudo mv argocd /usr/local/bin/argocd
-        fi
-        argocd version --client
-
-    - name: Install kubectl
-      run: |
-        if ! command -v kubectl &> /dev/null; then
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/kubectl
-        fi
-        kubectl version --client
-
-    - name: Login to ArgoCD
-      run: |
-        argocd login ${{ secrets.ARGOCD_SERVER }} \
-          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
-          --grpc-web \
-          --insecure
-        echo "✅ Logged in"
-
-    - name: Sync ArgoCD Application
-      run: |
-        APP_NAME="devapp"  # Ubah kalau beda
-        argocd app sync $APP_NAME --prune --force
-        argocd app wait $APP_NAME --health --timeout 300
-        echo "✅ Synced"
-
-    - name: Get Application Status
-      run: |
-        APP_NAME="devapp"
-        echo "=== ArgoCD Status ==="
-        argocd app get $APP_NAME
-        echo "\n=== Pods ==="
-        kubectl get pods -n devapp
-        echo "\n=== Services ==="
-        kubectl get services -n devapp
+    - name: Build Frontend Docker Image
+      run: docker build -t devapp-frontend ./frontend
