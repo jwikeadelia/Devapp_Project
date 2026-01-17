@@ -34,3 +34,4 @@ jobs:
           context: ./frontend
           push: true
           tags: jwikeadelia/devapp-frontend:latest
+
