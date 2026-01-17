@@ -93,7 +93,7 @@ export default function Stok() {
           <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
             <div>
               <h2 className="fw-bold text-primary mb-0 text-uppercase letter-spacing-1">
-                Kelola Stok
+                Kelola Stok Barang
               </h2>
             </div>
           </div>
