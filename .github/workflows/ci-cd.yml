@@ -2,98 +2,93 @@ name: GitOps Deploy with ArgoCD (Podman)
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]  # Ganti ke main kalau repo pakai main (default GitHub)
 
 env:
-  # Configure your container registry here
-  REGISTRY: docker.io  # Change to your registry (ghcr.io, quay.io, etc.)
+  REGISTRY: docker.io  # Ubah ke ghcr.io untuk GitHub Container Registry (lebih cepat)
   REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-and-push:
-    runs-on: self-hosted
-    
+    runs-on: ubuntu-latest  # Switch ke ubuntu-latest untuk test; kembalikan ke self-hosted kalau perlu
+
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
-    - name: Test Environment
+
+    - name: Install Podman if not present
       run: |
-        echo "✅ Checking Podman installation..."
+        if ! command -v podman &> /dev/null; then
+          echo "Installing Podman..."
+          sudo apt-get update -qq
+          sudo apt-get install -y podman podman-compose
+        fi
         podman --version
-        echo "Podman is ready for building images"
+        echo "Podman ready."
 
     - name: Set Image Metadata
       id: meta
       run: |
-        $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
-        echo "tag=$SHORT_SHA" >> $env:GITHUB_OUTPUT
-        echo "Image tag will be: $SHORT_SHA"
+        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+        echo "tag=$SHORT_SHA" >> $GITHUB_OUTPUT
+        echo "Image tag: $SHORT_SHA"
 
     - name: Build Images with Podman Compose
       run: |
-        echo "Building all services with podman-compose..."
+        echo "Building services..."
         podman-compose build
         
-        echo "Tagging images for registry..."
-        # Tag backend image
-        podman tag devapp_project_backend:latest `
+        echo "Tagging images..."
+        podman tag devapp_project_backend:latest \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
-        podman tag devapp_project_backend:latest `
+        podman tag devapp_project_backend:latest \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
         
-        # Tag frontend image
-        podman tag devapp_project_frontend:latest `
+        podman tag devapp_project_frontend:latest \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
-        podman tag devapp_project_frontend:latest `
+        podman tag devapp_project_frontend:latest \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
         
-        # Verify images
-        echo "Verifying built images..."
-        podman images | findstr devapp
+        echo "Verifying images..."
+        podman images | grep devapp || true
 
     - name: Test Container
       run: |
-        echo "Testing Backend Container..."
-        podman run -d --name test-backend -p 5001:5000 `
+        echo "Testing Backend..."
+        podman run -d --name test-backend -p 5001:5000 \
           ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
         
-        Start-Sleep -Seconds 5
+        sleep 5
         
-        if (podman ps --filter "name=test-backend" --format "{{.Names}}") { 
-            echo "✅ Container is running" 
-        } else { 
-            echo "❌ Container failed to start"
-            podman logs test-backend
-            exit 1 
-        }
+        if podman ps --filter "name=test-backend" --format "{{.Names}}" | grep test-backend; then
+          echo "✅ Running"
+        else
+          echo "❌ Failed"
+          podman logs test-backend
+          exit 1
+        fi
         
         podman stop test-backend
         podman rm test-backend
 
     - name: Login to Container Registry
-      run: |
-        echo "Logging in to ${{ env.REGISTRY }}..."
-        echo "${{ env.REGISTRY_PASSWORD }}" | podman login ${{ env.REGISTRY }} `
-          --username ${{ env.REGISTRY_USER }} `
-          --password-stdin
+      uses: redhat-actions/podman-login@v1
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ env.REGISTRY_USER }}
+        password: ${{ env.REGISTRY_PASSWORD }}
 
     - name: Push Images
       run: |
-        echo "Pushing Backend images..."
         podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:${{ steps.meta.outputs.tag }}
         podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:latest
-        
-        echo "Pushing Frontend images..."
         podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:${{ steps.meta.outputs.tag }}
         podman push ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:latest
-        
-        echo "✅ Images pushed successfully"
+        echo "✅ Pushed"
 
     - name: Logout from Registry
       if: always()
@@ -101,8 +96,8 @@ jobs:
 
   update-manifests:
     needs: build-and-push
-    runs-on: self-hosted
-    
+    runs-on: ubuntu-latest  # Sama seperti atas
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -112,94 +107,78 @@ jobs:
 
     - name: Update Image Tags in K8s Manifests
       run: |
-        $TAG = "${{ needs.build-and-push.outputs.image_tag }}"
-        echo "Updating manifests with image tag: $TAG"
+        TAG=${{ needs.build-and-push.outputs.image_tag }}
+        echo "Updating with tag: $TAG"
         
-        # Update backend deployment
-        if (Test-Path "k8s/03-backend.yaml") {
-          (Get-Content k8s/03-backend.yaml) -replace 'image:.*devapp.*backend.*', `
-            "image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:$TAG" | `
-            Set-Content k8s/03-backend.yaml
-        }
+        if [ -f "k8s/03-backend.yaml" ]; then
+          sed -i "s|image: .*devapp.*backend.*|image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-backend:$TAG|g" k8s/03-backend.yaml
+        fi
         
-        # Update frontend deployment
-        if (Test-Path "k8s/04-frontend.yaml") {
-          (Get-Content k8s/04-frontend.yaml) -replace 'image:.*devapp.*frontend.*', `
-            "image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:$TAG" | `
-            Set-Content k8s/04-frontend.yaml
-        }
-        
-        echo "✅ Manifests updated"
+        if [ -f "k8s/04-frontend.yaml" ]; then
+          sed -i "s|image: .*devapp.*frontend.*|image: ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/devapp-frontend:$TAG|g" k8s/04-frontend.yaml
+        fi
+        echo "✅ Updated"
 
     - name: Commit and Push Updated Manifests
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git config user.name "github-actions[bot]"
         
         git add k8s/03-backend.yaml k8s/04-frontend.yaml
         
-        # Only commit if there are changes
-        if (git diff --staged --quiet) {
-          echo "No changes to commit"
-        } else {
+        if git diff --staged --quiet; then
+          echo "No changes"
+        else
           git commit -m "Update image tags to ${{ needs.build-and-push.outputs.image_tag }}"
           git push
-          echo "✅ Manifests committed and pushed"
-        }
+          echo "✅ Committed and pushed"
+        fi
 
   argocd-sync:
     needs: [build-and-push, update-manifests]
-    runs-on: self-hosted
-    
+    runs-on: ubuntu-latest  # Sama
+
     steps:
-    - name: Install ArgoCD CLI (if not present)
+    - name: Install ArgoCD CLI
       run: |
-        if (-not (Get-Command argocd -ErrorAction SilentlyContinue)) {
+        if ! command -v argocd &> /dev/null; then
           echo "Installing ArgoCD CLI..."
-          $version = "v2.9.3"
-          Invoke-WebRequest -Uri "https://github.com/argoproj/argo-cd/releases/download/$version/argocd-windows-amd64.exe" `
-            -OutFile "$env:TEMP\argocd.exe"
-          Move-Item -Force "$env:TEMP\argocd.exe" "C:\Windows\System32\argocd.exe"
-          echo "✅ ArgoCD CLI installed"
-        } else {
-          echo "ArgoCD CLI already installed"
-          argocd version --client
-        }
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/download/v2.11.3/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/argocd
+        fi
+        argocd version --client
+
+    - name: Install kubectl
+      run: |
+        if ! command -v kubectl &> /dev/null; then
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+        fi
+        kubectl version --client
 
     - name: Login to ArgoCD
       run: |
-        # Configure these secrets in your GitHub repository:
-        # ARGOCD_SERVER: ArgoCD server address (e.g., argocd.example.com)
-        # ARGOCD_AUTH_TOKEN: ArgoCD authentication token
-        
-        argocd login ${{ secrets.ARGOCD_SERVER }} `
-          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} `
-          --grpc-web `
+        argocd login ${{ secrets.ARGOCD_SERVER }} \
+          --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+          --grpc-web \
           --insecure
-        
-        echo "✅ Logged in to ArgoCD"
+        echo "✅ Logged in"
 
     - name: Sync ArgoCD Application
       run: |
-        # Change 'devapp' to your ArgoCD application name
-        $APP_NAME = "devapp"
-        
-        echo "Syncing ArgoCD application: $APP_NAME"
+        APP_NAME="devapp"  # Ubah kalau beda
         argocd app sync $APP_NAME --prune --force
-        
-        echo "Waiting for sync to complete..."
         argocd app wait $APP_NAME --health --timeout 300
-        
-        echo "✅ ArgoCD sync completed"
+        echo "✅ Synced"
 
     - name: Get Application Status
       run: |
-        $APP_NAME = "devapp"
-        echo "=== ArgoCD Application Status ==="
+        APP_NAME="devapp"
+        echo "=== ArgoCD Status ==="
         argocd app get $APP_NAME
-        
-        echo "`n=== Pod Status ==="
+        echo "\n=== Pods ==="
         kubectl get pods -n devapp
-        
-        echo "`n=== Service Status ==="
+        echo "\n=== Services ==="
         kubectl get services -n devapp
