@@ -1,98 +1,37 @@
-name: CI/CD Devapp Project
+name: Build and Push Docker Images
 
 on:
   push:
     branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
 
 jobs:
-  # =====================
-  # JOB 1 : BUILD & TEST (CI)
-  # =====================
-  build-and-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-
-    # ===== BACKEND =====
-    - name: Install Backend Dependencies
-      working-directory: backend
-      run: npm install
-
-    - name: Run Backend Test
-      working-directory: backend
-      run: npm test || echo "Backend test skipped (requires database)"
-
-    # ===== FRONTEND =====
-    - name: Install Frontend Dependencies
-      working-directory: frontend
-      run: npm install
-
-    - name: Build Frontend
-      working-directory: frontend
-      run: npm run build
-
-
-  # =====================
-  # JOB 2 : REPORT BUILD STATUS
-  # =====================
-  report-build-status:
-    needs: build-and-test
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Report Build Status
-      run: |
-        echo "================================="
-        echo " Build & Test Stage: SUCCESS ✅"
-        echo " Timestamp: $(date)"
-        echo "================================="
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-  # =====================
-  # JOB 3 : DEPLOY (CD)
-  # =====================
-  deploy:
-    needs: report-build-status
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+      - name: Build and push Backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: jwikeadelia/devapp-backend:latest
+          # Optional: tambah tag dengan commit sha
+          # tags: |
+          #   jwikeadelia/devapp-backend:latest
+          #   jwikeadelia/devapp-backend:${{ github.sha }}
 
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    # ===== BACKEND IMAGE =====
-    - name: Build & Push Backend Image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend
-        push: true
-        tags: keelay88/devapp-backend:latest
-
-    # ===== FRONTEND IMAGE =====
-    - name: Build & Push Frontend Image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./frontend
-        push: true
-        tags: keelay88/devapp-frontend:latest
-
-    - name: Simulate Kubernetes Deployment
-      run: |
-        echo "Deploying application to Kubernetes..."
-        echo "kubectl apply -f k8s/"
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: jwikeadelia/devapp-frontend:latest
