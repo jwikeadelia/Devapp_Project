@@ -2,7 +2,7 @@ name: Build and Push Docker Images
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
   build-and-push:
@@ -18,20 +18,24 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Debug - Check if logged in (optional, hapus kalau sudah OK)
+        run: docker info --format '{{.LoggedIn}}'  # Harus true kalau login sukses
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3  # Tambah ini biar buildx stabil
+
       - name: Build and push Backend image
         uses: docker/build-push-action@v6
         with:
           context: ./backend
+          file: ./backend/Dockerfile  # tambah kalau nama file Dockerfile
           push: true
           tags: jwikeadelia/devapp-backend:latest
-          # Optional: tambah tag dengan commit sha
-          # tags: |
-          #   jwikeadelia/devapp-backend:latest
-          #   jwikeadelia/devapp-backend:${{ github.sha }}
 
       - name: Build and push Frontend image
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
+          file: ./frontend/Dockerfile
           push: true
           tags: jwikeadelia/devapp-frontend:latest
