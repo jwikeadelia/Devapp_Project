@@ -18,17 +18,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Debug - Check if logged in (optional, hapus kalau sudah OK)
-        run: docker info --format '{{.LoggedIn}}'  # Harus true kalau login sukses
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3  # Tambah ini biar buildx stabil
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push Backend image
         uses: docker/build-push-action@v6
         with:
           context: ./backend
-          file: ./backend/Dockerfile  # tambah kalau nama file Dockerfile
           push: true
           tags: jwikeadelia/devapp-backend:latest
 
@@ -36,6 +32,5 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
-          file: ./frontend/Dockerfile
           push: true
           tags: jwikeadelia/devapp-frontend:latest
