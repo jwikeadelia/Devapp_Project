@@ -16,7 +16,7 @@ spec:
       containers:
         - name: backend
           # image: docker.io/keelay88/devapp-backend:latest
-          image: docker.io/jwikeadelia/devapp-frontend:latest
+          image: docker.io/jwikeadelia/devapp-backend:latest
           imagePullPolicy: Always
           command:
             - /bin/sh
