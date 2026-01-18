@@ -60,7 +60,7 @@ export default function Register() {
               className="form-control"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Masukkan password"
+              placeholder="Masukkan password Anda"
               required
             />
           </div>
